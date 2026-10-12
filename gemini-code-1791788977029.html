@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Rekod Transit PBD</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        tp1: '#EF4444', // Red
+                        tp2: '#F97316', // Orange
+                        tp3: '#EAB308', // Yellow
+                        tp4: '#3B82F6', // Blue
+                        tp5: '#A855F7', // Purple
+                        tp6: '#22C55E', // Green
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 1rem;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+        }
+        .print-only { display: none; }
+        
+        @media print {
+            body {
+                background: white !important;
+                -webkit-print-color-adjust: exact;
+            }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .glass, .glass-panel {
+                background: transparent !important;
+                backdrop-filter: none !important;
+                border: none !important;
+                box-shadow: none !important;
+            }
+            .print-container {
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            textarea {
+                border: none !important;
+                resize: none !important;
+                background: transparent !important;
+                overflow: hidden !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Utility: Convert Mark to TP
+        const getTP = (mark) => {
+            if (mark === '' || mark === null) return '-';
+            const m = parseInt(mark);
+            if (m < 20) return 1;
+            if (m < 40) return 2;
+            if (m < 60) return 3;
+            if (m < 75) return 4;
+            if (m < 90) return 5;
+            return 6;
+        };
+
+        const getTPColor = (tp) => {
+            const colors = {
+                1: 'bg-tp1 text-white',
+                2: 'bg-tp2 text-white',
+                3: 'bg-tp3 text-white',
+                4: 'bg-tp4 text-white',
+                5: 'bg-tp5 text-white',
+                6: 'bg-tp6 text-white',
+                '-': 'bg-gray-200 text-gray-500'
+            };
+            return colors[tp] || colors['-'];
+        };
+
+        const initialTopics = [
+            { id: 'T1', name: '1.0 Kemahiran Mendengar dan Bertutur' },
+            { id: 'T2', name: '2.0 Kemahiran Membaca' },
+            { id: 'T3', name: '3.0 Kemahiran Menulis' },
+            { id: 'T4', name: '4.0 Kemahiran Komunikasi' },
+            { id: 'T5', name: '1.0 Listening and Speaking' }
+        ];
+
+        const initialStudents = [
+            { id: 1, name: 'CHRIST PUTRA ELVINE A/L HANAFFIE', marks: { T1: 85, T2: 78, T3: 65, T4: 92, T5: 70 } },
+            { id: 2, name: 'ALVIRA A/P SANWIN', marks: { T1: 45, T2: 55, T3: 38, T4: 60, T5: 50 } }
+        ];
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            
+            // Settings State
+            const [settings, setSettings] = useState(() => {
+                const saved = localStorage.getItem('pbd_settings');
+                return saved ? JSON.parse(saved) : {
+                    schoolLogo: '',
+                    subjectName: 'Asas 3M',
+                    yearForm: 'Tahun 3',
+                    topics: initialTopics
+                };
+            });
+
+            // Students State
+            const [students, setStudents] = useState(() => {
+                const saved = localStorage.getItem('pbd_students');
+                return saved ? JSON.parse(saved) : initialStudents;
+            });
+
+            // Save to LocalStorage
+            useEffect(() => {
+                localStorage.setItem('pbd_settings', JSON.stringify(settings));
+                localStorage.setItem('pbd_students', JSON.stringify(students));
+            }, [settings, students]);
+
+            // Handlers
+            const handleLogoUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setSettings({ ...settings, schoolLogo: reader.result });
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const addStudent = () => {
+                const name = prompt('Sila masukkan nama pelajar:');
+                if (name) {
+                    setStudents([...students, { id: Date.now(), name: name.toUpperCase(), marks: {} }]);
+                }
+            };
+
+            const deleteStudent = (id) => {
+                if (confirm('Adakah anda pasti mahu memadam rekod pelajar ini?')) {
+                    setStudents(students.filter(s => s.id !== id));
+                }
+            };
+
+            const updateMark = (studentId, topicId, val) => {
+                let mark = parseInt(val);
+                if (isNaN(mark)) mark = '';
+                if (mark > 100) mark = 100;
+                if (mark < 0) mark = 0;
+                
+                setStudents(students.map(s => {
+                    if (s.id === studentId) {
+                        return { ...s, marks: { ...s.marks, [topicId]: mark } };
+                    }
+                    return s;
+                }));
+            };
+
+            const backupData = () => {
+                const data = { settings, students };
+                const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'backup_pbd.json';
+                a.click();
+            };
+
+            const restoreData = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        try {
+                            const data = JSON.parse(event.target.result);
+                            if (data.settings && data.students) {
+                                setSettings(data.settings);
+                                setStudents(data.students);
+                                alert('Data berjaya dimuat naik!');
+                            }
+                        } catch (err) {
+                            alert('Fail tidak sah!');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+
+            return (
+                <div className="min-h-screen p-4 md:p-8 print-container">
+                    {/* Header */}
+                    <header className="glass rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between no-print">
+                        <div className="flex items-center gap-4 mb-4 md:mb-0">
+                            {settings.schoolLogo ? (
+                                <img src={settings.schoolLogo} alt="Logo" className="w-16 h-16 object-contain" />
+                            ) : (
+                                <div className="w-16 h-16 bg-white/50 rounded-full flex items-center justify-center text-xs text-center text-gray-500">Tiada Logo</div>
+                            )}
+                            <div>
+                                <h1 className="text-2xl font-bold text-gray-800">Sistem Rekod Transit PBD</h1>
+                                <p className="text-gray-600 font-medium">{settings.subjectName} | {settings.yearForm}</p>
+                            </div>
+                        </div>
+                        <nav className="flex gap-2 bg-white/30 p-1 rounded-xl">
+                            {['dashboard', 'rekod', 'laporan', 'tetapan'].map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    className={`px-4 py-2 rounded-lg font-medium transition-all capitalize ${activeTab === tab ? 'bg-white shadow-md text-blue-600' : 'text-gray-600 hover:bg-white/50'}`}
+                                >
+                                    {tab}
+                                </button>
+                            ))}
+                        </nav>
+                    </header>
+
+                    {/* Content Area */}
+                    <main>
+                        {activeTab === 'dashboard' && <Dashboard students={students} settings={settings} />}
+                        {activeTab === 'rekod' && <Rekod students={students} settings={settings} updateMark={updateMark} addStudent={addStudent} deleteStudent={deleteStudent} />}
+                        {activeTab === 'laporan' && <Laporan students={students} settings={settings} />}
+                        {activeTab === 'tetapan' && <Tetapan settings={settings} setSettings={setSettings} handleLogoUpload={handleLogoUpload} backup={backupData} restore={restoreData} />}
+                    </main>
+                </div>
+            );
+        };
+
+        // ================= DASHBOARD COMPONENT =================
+        const Dashboard = ({ students, settings }) => {
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            const totalStudents = students.length;
+            let totalMarks = 0;
+            let markCount = 0;
+            let tpCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+            
+            let interventionList = [];
+            let excellentList = [];
+
+            students.forEach(s => {
+                let sTotal = 0;
+                let sCount = 0;
+                settings.topics.forEach(t => {
+                    const m = s.marks[t.id];
+                    if (m !== undefined && String(m) !== '') {
+                        totalMarks += m;
+                        markCount++;
+                        sTotal += m;
+                        sCount++;
+                    }
+                });
+                
+                if (sCount > 0) {
+                    const avgMark = sTotal / sCount;
+                    const avgTP = getTP(avgMark);
+                    tpCounts[avgTP]++;
+                    
+                    if (avgTP <= 2) interventionList.push({ name: s.name, tp: avgTP });
+                    if (avgTP >= 5) excellentList.push({ name: s.name, tp: avgTP });
+                }
+            });
+
+            const classAvgMark = markCount > 0 ? (totalMarks / markCount).toFixed(1) : 0;
+            const classAvgTP = getTP(classAvgMark);
+
+            useEffect(() => {
+                if (chartRef.current) {
+                    if (chartInstance.current) chartInstance.current.destroy();
+                    const ctx = chartRef.current.getContext('2d');
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['TP 1', 'TP 2', 'TP 3', 'TP 4', 'TP 5', 'TP 6'],
+                            datasets: [{
+                                label: 'Bilangan Pelajar',
+                                data: [tpCounts[1], tpCounts[2], tpCounts[3], tpCounts[4], tpCounts[5], tpCounts[6]],
+                                backgroundColor: ['#EF4444', '#F97316', '#EAB308', '#3B82F6', '#A855F7', '#22C55E'],
+                                borderRadius: 6
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                        }
+                    });
+                }
+                return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+            }, [students, settings]);
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="glass-panel p-6 text-center">
+                            <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-2">Jumlah Pelajar</h3>
+                            <p className="text-4xl font-bold text-gray-800">{totalStudents}</p>
+                        </div>
+                        <div className="glass-panel p-6 text-center">
+                            <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-2">Purata Markah Kelas</h3>
+                            <p className="text-4xl font-bold text-gray-800">{classAvgMark}%</p>
+                        </div>
+                        <div className="glass-panel p-6 text-center flex flex-col items-center">
+                            <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-2">Purata TP Kelas</h3>
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold shadow-md ${getTPColor(classAvgTP)}`}>
+                                {classAvgTP}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Chart */}
+                        <div className="glass-panel p-6">
+                            <h3 className="text-lg font-bold text-gray-700 mb-4">Taburan Tahap Penguasaan (TP)</h3>
+                            <div className="h-64"><canvas ref={chartRef}></canvas></div>
+                        </div>
+
+                        {/* Lists */}
+                        <div className="space-y-6">
+                            <div className="glass-panel p-6 border-l-4 border-l-tp1">
+                                <h3 className="text-lg font-bold text-red-600 mb-3">Senarai Intervensi (TP 1 - TP 2)</h3>
+                                {interventionList.length > 0 ? (
+                                    <ul className="space-y-3">
+                                        {interventionList.map((s, i) => (
+                                            <li key={i} className="flex flex-col bg-white/50 p-3 rounded-lg">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="font-semibold text-gray-800">{s.name}</span>
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${getTPColor(s.tp)}`}>TP {s.tp}</span>
+                                                </div>
+                                                <p className="text-sm text-gray-600 italic">Cadangan: Bimbingan rapi secara individu, latih tubi berfokus, atau rakan sebaya.</p>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : <p className="text-gray-500">Tiada pelajar dalam senarai intervensi.</p>}
+                            </div>
+
+                            <div className="glass-panel p-6 border-l-4 border-l-tp6">
+                                <h3 className="text-lg font-bold text-green-600 mb-3">Senarai Cemerlang (TP 5 - TP 6)</h3>
+                                {excellentList.length > 0 ? (
+                                    <ul className="space-y-3">
+                                        {excellentList.map((s, i) => (
+                                            <li key={i} className="flex flex-col bg-white/50 p-3 rounded-lg">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="font-semibold text-gray-800">{s.name}</span>
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${getTPColor(s.tp)}`}>TP {s.tp}</span>
+                                                </div>
+                                                <p className="text-sm text-gray-600 italic">Cadangan: Aktiviti pengayaan, projek kreatif, atau pembimbing rakan sebaya.</p>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : <p className="text-gray-500">Tiada pelajar dalam senarai cemerlang.</p>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ================= REKOD COMPONENT =================
+        const Rekod = ({ students, settings, updateMark, addStudent, deleteStudent }) => {
+            return (
+                <div className="glass-panel p-6 animate-fade-in overflow-hidden">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-800">Rekod Markah & TP</h2>
+                        <button onClick={addStudent} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors shadow-md">
+                            + Tambah Pelajar
+                        </button>
+                    </div>
+                    
+                    <div className="overflow-x-auto rounded-xl border border-white/30">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-white/40 text-gray-700 font-semibold">
+                                <tr>
+                                    <th className="p-3 w-10 text-center">No</th>
+                                    <th className="p-3 min-w-[200px]">Nama Pelajar</th>
+                                    {settings.topics.map(t => (
+                                        <th key={t.id} className="p-3 w-28 text-center" title={t.name}>{t.id}</th>
+                                    ))}
+                                    <th className="p-3 w-12 text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/20">
+                                {students.length === 0 ? (
+                                    <tr><td colSpan={settings.topics.length + 3} className="p-6 text-center text-gray-500">Tiada rekod pelajar.</td></tr>
+                                ) : (
+                                    students.map((s, idx) => (
+                                        <tr key={s.id} className="hover:bg-white/30 transition-colors">
+                                            <td className="p-3 text-center">{idx + 1}</td>
+                                            <td className="p-3 font-medium text-gray-800">{s.name}</td>
+                                            {settings.topics.map(t => {
+                                                const mark = s.marks[t.id] !== undefined ? s.marks[t.id] : '';
+                                                const tp = getTP(mark);
+                                                return (
+                                                    <td key={t.id} className="p-2">
+                                                        <div className="flex items-center gap-1 justify-center">
+                                                            <input 
+                                                                type="number" 
+                                                                min="0" max="100" 
+                                                                value={mark}
+                                                                onChange={(e) => updateMark(s.id, t.id, e.target.value)}
+                                                                className="w-12 p-1 text-center border border-gray-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                                                placeholder="-"
+                                                            />
+                                                            <div className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold shadow-sm ${getTPColor(tp)}`}>
+                                                                {tp}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="p-3 text-center">
+                                                <button onClick={() => deleteStudent(s.id)} className="text-red-500 hover:text-red-700" title="Padam">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        // ================= LAPORAN COMPONENT =================
+        const Laporan = ({ students, settings }) => {
+            const [selectedId, setSelectedId] = useState('');
+            const radarRef = useRef(null);
+            const radarInstance = useRef(null);
+
+            const student = students.find(s => s.id == selectedId);
+
+            let totalMark = 0, count = 0;
+            const marksData = [];
+            const labelsData = [];
+
+            if (student) {
+                settings.topics.forEach(t => {
+                    labelsData.push(t.id);
+                    const m = student.marks[t.id];
+                    if (m !== undefined && String(m) !== '') {
+                        marksData.push(m);
+                        totalMark += m;
+                        count++;
+                    } else {
+                        marksData.push(0);
+                    }
+                });
+            }
+
+            const avgMark = count > 0 ? (totalMark / count) : 0;
+            const overallTP = getTP(avgMark);
+
+            // Auto-generate comment
+            const [ulasan, setUlasan] = useState('');
+            
+            useEffect(() => {
+                if (overallTP === 1 || overallTP === 2) setUlasan('Perlu bimbingan dan perhatian yang lebih dalam menguasai kemahiran asas. Teruskan usaha.');
+                else if (overallTP === 3 || overallTP === 4) setUlasan('Pencapaian yang memuaskan dan menguasai kemahiran pada tahap yang baik. Boleh dipertingkatkan lagi.');
+                else if (overallTP === 5 || overallTP === 6) setUlasan('Syabas! Pencapaian yang amat cemerlang. Teruskan kecemerlangan dan bantu rakan-rakan lain.');
+                else setUlasan('');
+            }, [overallTP, selectedId]);
+
+            useEffect(() => {
+                if (student && radarRef.current) {
+                    if (radarInstance.current) radarInstance.current.destroy();
+                    const ctx = radarRef.current.getContext('2d');
+                    radarInstance.current = new Chart(ctx, {
+                        type: 'radar',
+                        data: {
+                            labels: labelsData,
+                            datasets: [{
+                                label: 'Markah Pelajar',
+                                data: marksData,
+                                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                borderWidth: 2,
+                                pointBackgroundColor: '#fff',
+                                pointBorderColor: 'rgba(59, 130, 246, 1)'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: { r: { min: 0, max: 100, ticks: { stepSize: 20 } } },
+                            plugins: { legend: { display: false } }
+                        }
+                    });
+                }
+            }, [student]);
+
+            return (
+                <div className="animate-fade-in">
+                    <div className="glass-panel p-4 mb-6 no-print flex items-center gap-4">
+                        <label className="font-semibold text-gray-700">Pilih Pelajar:</label>
+                        <select 
+                            className="p-2 border rounded-lg bg-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400 w-full max-w-md"
+                            value={selectedId} onChange={e => setSelectedId(e.target.value)}
+                        >
+                            <option value="">-- Sila Pilih --</option>
+                            {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                        {student && (
+                            <button onClick={() => window.print()} className="ml-auto bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors shadow-md">
+                                Cetak / PDF
+                            </button>
+                        )}
+                    </div>
+
+                    {student && (
+                        <div className="glass-panel p-8 bg-white/80 print:bg-white print:shadow-none print:border-none print:p-0">
+                            {/* Header Cetak */}
+                            <div className="flex items-center border-b-2 border-gray-300 pb-4 mb-6">
+                                {settings.schoolLogo && <img src={settings.schoolLogo} alt="Logo" className="w-24 h-24 object-contain mr-6" />}
+                                <div className="flex-1 text-center">
+                                    <h2 className="text-2xl font-bold uppercase text-gray-800">Laporan Pentaksiran Bilik Darjah (PBD)</h2>
+                                    <p className="text-lg font-medium text-gray-600">{settings.subjectName} | {settings.yearForm}</p>
+                                </div>
+                            </div>
+
+                            {/* Info Pelajar */}
+                            <div className="flex justify-between items-center bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
+                                <div>
+                                    <p className="text-sm text-gray-500 uppercase tracking-wide">Nama Pelajar</p>
+                                    <p className="text-xl font-bold text-gray-800">{student.name}</p>
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-sm text-gray-500 uppercase tracking-wide mb-1">TP Keseluruhan</p>
+                                    <div className={`inline-block px-4 py-1 rounded text-lg font-bold shadow-sm ${getTPColor(overallTP)}`}>
+                                        TP {overallTP}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                                {/* Jadual */}
+                                <div>
+                                    <table className="w-full text-sm text-left border-collapse border border-gray-300">
+                                        <thead className="bg-gray-100">
+                                            <tr>
+                                                <th className="border border-gray-300 p-2 text-center w-12">Kod</th>
+                                                <th className="border border-gray-300 p-2">Topik / Kemahiran</th>
+                                                <th className="border border-gray-300 p-2 text-center w-16">Markah</th>
+                                                <th className="border border-gray-300 p-2 text-center w-16">TP</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {settings.topics.map(t => {
+                                                const m = student.marks[t.id];
+                                                const tp = getTP(m);
+                                                return (
+                                                    <tr key={t.id}>
+                                                        <td className="border border-gray-300 p-2 text-center font-semibold">{t.id}</td>
+                                                        <td className="border border-gray-300 p-2">{t.name}</td>
+                                                        <td className="border border-gray-300 p-2 text-center">{m !== undefined && m !== '' ? m : '-'}</td>
+                                                        <td className="border border-gray-300 p-2 text-center">
+                                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${getTPColor(tp)}`}>{tp}</span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {/* Graf */}
+                                <div>
+                                    <h3 className="text-center font-semibold text-gray-700 mb-2">Graf Perkembangan Topik</h3>
+                                    <div className="h-64 w-full"><canvas ref={radarRef}></canvas></div>
+                                </div>
+                            </div>
+
+                            {/* Ulasan */}
+                            <div className="mb-12">
+                                <p className="font-semibold text-gray-700 mb-2">Ulasan Guru & Tindakan Susulan:</p>
+                                <textarea 
+                                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-400 min-h-[80px]"
+                                    value={ulasan}
+                                    onChange={(e) => setUlasan(e.target.value)}
+                                ></textarea>
+                            </div>
+
+                            {/* Signatures */}
+                            <div className="flex justify-between px-10 mt-16 pt-8">
+                                <div className="text-center">
+                                    <div className="border-b border-gray-800 w-48 mb-2"></div>
+                                    <p className="text-sm font-semibold text-gray-700">Tandatangan Guru</p>
+                                </div>
+                                <div className="text-center">
+                                    <div className="border-b border-gray-800 w-48 mb-2"></div>
+                                    <p className="text-sm font-semibold text-gray-700">Tandatangan Ibu Bapa / Penjaga</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ================= TETAPAN COMPONENT =================
+        const Tetapan = ({ settings, setSettings, handleLogoUpload, backup, restore }) => {
+            
+            const handleTopicChange = (id, field, value) => {
+                const newTopics = settings.topics.map(t => t.id === id ? { ...t, [field]: value } : t);
+                setSettings({ ...settings, topics: newTopics });
+            };
+
+            const addTopic = () => {
+                const newId = 'T' + (settings.topics.length + 1);
+                setSettings({ ...settings, topics: [...settings.topics, { id: newId, name: 'Topik Baru' }] });
+            };
+
+            const deleteTopic = (id) => {
+                setSettings({ ...settings, topics: settings.topics.filter(t => t.id !== id) });
+            };
+
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+                    {/* Maklumat Am */}
+                    <div className="glass-panel p-6">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4 border-b border-white/40 pb-2">Maklumat Aplikasi</h2>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Logo Sekolah</label>
+                                <input type="file" accept="image/*" onChange={handleLogoUpload} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                {settings.schoolLogo && <img src={settings.schoolLogo} alt="Preview" className="mt-2 h-16 object-contain" />}
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Nama Subjek</label>
+                                <input 
+                                    type="text" value={settings.subjectName} 
+                                    onChange={(e) => setSettings({...settings, subjectName: e.target.value})}
+                                    className="w-full p-2 border border-gray-300 rounded-lg bg-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400" 
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Tahun / Tingkatan</label>
+                                <input 
+                                    type="text" value={settings.yearForm} 
+                                    onChange={(e) => setSettings({...settings, yearForm: e.target.value})}
+                                    className="w-full p-2 border border-gray-300 rounded-lg bg-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400" 
+                                />
+                            </div>
+                        </div>
+
+                        <h2 className="text-xl font-bold text-gray-800 mt-8 mb-4 border-b border-white/40 pb-2">Pengurusan Data</h2>
+                        <div className="flex gap-4">
+                            <button onClick={backup} className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-medium shadow-md transition-colors">
+                                Muat Turun (Backup)
+                            </button>
+                            <label className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white py-2 rounded-lg font-medium shadow-md transition-colors text-center cursor-pointer">
+                                Muat Naik (Restore)
+                                <input type="file" accept=".json" onChange={restore} className="hidden" />
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* DSKP Topics */}
+                    <div className="glass-panel p-6">
+                        <div className="flex justify-between items-center mb-4 border-b border-white/40 pb-2">
+                            <h2 className="text-xl font-bold text-gray-800">Topik DSKP</h2>
+                            <button onClick={addTopic} className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1 rounded-lg text-sm font-semibold transition-colors">
+                                + Tambah
+                            </button>
+                        </div>
+                        
+                        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                            {settings.topics.map((t, i) => (
+                                <div key={t.id} className="flex gap-2 items-center bg-white/40 p-2 rounded-lg">
+                                    <input 
+                                        type="text" value={t.id} 
+                                        onChange={(e) => handleTopicChange(t.id, 'id', e.target.value)}
+                                        className="w-16 p-1.5 text-center font-bold border border-gray-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400" 
+                                    />
+                                    <input 
+                                        type="text" value={t.name} 
+                                        onChange={(e) => handleTopicChange(t.id, 'name', e.target.value)}
+                                        className="flex-1 p-1.5 border border-gray-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400" 
+                                    />
+                                    <button onClick={() => deleteTopic(t.id)} className="text-red-500 hover:text-red-700 p-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
